@@ -486,11 +486,10 @@ fn op2_vscode_get_active_file_content(
     )?;
 
     // Try to get active file from VSCode's state database first
-    if let Ok(path) = get_active_file_from_vscode_state() {
-        if let Ok(content) = std::fs::read_to_string(&path) {
+    if let Ok(path) = get_active_file_from_vscode_state()
+        && let Ok(content) = std::fs::read_to_string(&path) {
             return Ok(content);
         }
-    }
 
     // Fallback to lsof approach
     get_active_file_via_lsof()
@@ -513,7 +512,7 @@ fn op2_vscode_get_workspace_path(state: &mut OpState) -> std::result::Result<Str
 
 /// Gets the workspace folder path from VSCode's state.vscdb
 fn get_workspace_path_from_vscode_state() -> anyhow::Result<String> {
-    use rusqlite::Connection;
+
 
     let home = std::env::var("HOME").map_err(|_| anyhow::anyhow!("HOME not set"))?;
     let workspace_storage_base = format!(
@@ -529,16 +528,16 @@ fn get_workspace_path_from_vscode_state() -> anyhow::Result<String> {
             let workspace_json = entry.path().join("workspace.json");
             let state_db = entry.path().join("state.vscdb");
 
-            if state_db.exists() && workspace_json.exists() {
-                if let Ok(meta) = state_db.metadata() {
-                    if let Ok(modified) = meta.modified() {
+            if state_db.exists() && workspace_json.exists()
+                && let Ok(meta) = state_db.metadata()
+                && let Ok(modified) = meta.modified() {
                         // Read the workspace.json to get the folder path
-                        if let Ok(json_str) = std::fs::read_to_string(&workspace_json) {
-                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                        if let Ok(json_str) = std::fs::read_to_string(&workspace_json)
+                            && let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
                                 // The folder field contains the workspace URI like "file:///path/to/folder"
-                                if let Some(folder) = json.get("folder").and_then(|f| f.as_str()) {
-                                    if newest_db.is_none()
-                                        || modified > newest_db.as_ref().unwrap().1
+                                if let Some(folder) = json.get("folder").and_then(|f| f.as_str())
+                                    && (newest_db.is_none()
+                                        || modified > newest_db.as_ref().unwrap().1)
                                     {
                                         let folder_path = folder
                                             .strip_prefix("file://")
@@ -550,12 +549,8 @@ fn get_workspace_path_from_vscode_state() -> anyhow::Result<String> {
                                             folder_path,
                                         ));
                                     }
-                                }
                             }
-                        }
                     }
-                }
-            }
         }
     }
 
@@ -580,15 +575,12 @@ fn get_active_file_from_vscode_state() -> anyhow::Result<String> {
     if let Ok(entries) = std::fs::read_dir(&workspace_storage_base) {
         for entry in entries.flatten() {
             let state_db = entry.path().join("state.vscdb");
-            if state_db.exists() {
-                if let Ok(meta) = state_db.metadata() {
-                    if let Ok(modified) = meta.modified() {
-                        if newest_db.is_none() || modified > newest_db.as_ref().unwrap().1 {
+            if state_db.exists()
+                && let Ok(meta) = state_db.metadata()
+                && let Ok(modified) = meta.modified()
+                && (newest_db.is_none() || modified > newest_db.as_ref().unwrap().1) {
                             newest_db = Some((state_db.to_string_lossy().to_string(), modified));
                         }
-                    }
-                }
-            }
         }
     }
 
@@ -609,22 +601,17 @@ fn get_active_file_from_vscode_state() -> anyhow::Result<String> {
         |row| row.get(0),
     );
 
-    if let Ok(json_str) = result {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+    if let Ok(json_str) = result
+        && let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
             // Navigate: editorpart.state -> serializedGrid -> root -> data[0] -> data -> editors[0] -> value (JSON string)
-            if let Some(state) = json.get("editorpart.state") {
-                if let Some(grid) = state.get("serializedGrid") {
-                    if let Some(root) = grid.get("root") {
-                        if let Some(path) = find_fs_path_in_editor_tree(root) {
-                            if std::path::Path::new(&path).exists() {
+            if let Some(state) = json.get("editorpart.state")
+                && let Some(grid) = state.get("serializedGrid")
+                && let Some(root) = grid.get("root")
+                && let Some(path) = find_fs_path_in_editor_tree(root)
+                && std::path::Path::new(&path).exists() {
                                 return Ok(path);
                             }
-                        }
-                    }
-                }
-            }
         }
-    }
 
     Err(anyhow::anyhow!(
         "Could not find active file in VSCode workspace state"
@@ -640,17 +627,14 @@ fn find_fs_path_in_editor_tree(node: &serde_json::Value) -> Option<String> {
                 for editor in editors {
                     if let Some(serde_json::Value::String(value_str)) = editor.get("value") {
                         // Parse the nested JSON string
-                        if let Ok(inner) = serde_json::from_str::<serde_json::Value>(value_str) {
-                            if let Some(serde_json::Value::Object(resource)) =
+                        if let Ok(inner) = serde_json::from_str::<serde_json::Value>(value_str)
+                            && let Some(serde_json::Value::Object(resource)) =
                                 inner.get("resourceJSON")
-                            {
-                                if let Some(serde_json::Value::String(fs_path)) =
+                            && let Some(serde_json::Value::String(fs_path)) =
                                     resource.get("fsPath")
                                 {
                                     return Some(fs_path.clone());
                                 }
-                            }
-                        }
                     }
                 }
             }
@@ -665,11 +649,10 @@ fn find_fs_path_in_editor_tree(node: &serde_json::Value) -> Option<String> {
             }
 
             // Also check direct data object
-            if let Some(data) = map.get("data") {
-                if let Some(path) = find_fs_path_in_editor_tree(data) {
+            if let Some(data) = map.get("data")
+                && let Some(path) = find_fs_path_in_editor_tree(data) {
                     return Some(path);
                 }
-            }
 
             None
         }
@@ -733,11 +716,10 @@ fn get_active_file_via_lsof() -> std::result::Result<String, JsErrorBox> {
                 continue;
             }
 
-            if let Ok(metadata) = std::fs::metadata(file_path) {
-                if let Ok(modified) = metadata.modified() {
+            if let Ok(metadata) = std::fs::metadata(file_path)
+                && let Ok(modified) = metadata.modified() {
                     candidates.push((file_path.to_string(), modified));
                 }
-            }
         }
 
         candidates.sort_by(|a, b| b.1.cmp(&a.1));
