@@ -26,5 +26,9 @@ globalThis.vscode.get_active_file_content = () => {
   console.log("vscode.get_active_file_content called");
   return Deno.core.ops.op2_vscode_get_active_file_content();
 };
+globalThis.vscode.get_workspace_path = () => {
+  console.log("vscode.get_workspace_path called");
+  return Deno.core.ops.op2_vscode_get_workspace_path();
+};
 
 console.log("VSCode Plugin initialized (flat style + debug).");

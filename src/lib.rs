@@ -74,6 +74,17 @@ pub fn vscode_get_active_file_content_plugin_function() -> PluginFunction {
     }
 }
 
+pub fn vscode_get_workspace_path_plugin_function() -> PluginFunction {
+    PluginFunction {
+        function_id: "app.sapphillon.core.vscode.get_workspace_path".to_string(),
+        function_name: "vscode.get_workspace_path".to_string(),
+        description: "Gets the path of the current workspace folder in VSCode.".to_string(),
+        permissions: vscode_plugin_permissions(),
+        arguments: "".to_string(),
+        returns: "String: workspace path".to_string(),
+    }
+}
+
 pub fn vscode_plugin_package() -> PluginPackage {
     PluginPackage {
         package_id: "app.sapphillon.core.vscode".to_string(),
@@ -85,6 +96,7 @@ pub fn vscode_plugin_package() -> PluginPackage {
             vscode_write_file_plugin_function(),
             vscode_close_workspace_plugin_function(),
             vscode_get_active_file_content_plugin_function(),
+            vscode_get_workspace_path_plugin_function(),
         ],
         package_version: env!("CARGO_PKG_VERSION").to_string(),
         deprecated: None,
@@ -150,6 +162,16 @@ pub fn core_vscode_get_active_file_content_plugin() -> CorePluginFunction {
     )
 }
 
+pub fn core_vscode_get_workspace_path_plugin() -> CorePluginFunction {
+    CorePluginFunction::new(
+        "app.sapphillon.core.vscode.get_workspace_path".to_string(),
+        "vscode.get_workspace_path".to_string(),
+        "Gets the path of the current workspace folder in VSCode.".to_string(),
+        op2_vscode_get_workspace_path(),
+        None,
+    )
+}
+
 pub fn core_vscode_plugin_package() -> CorePluginPackage {
     CorePluginPackage::new(
         "app.sapphillon.core.vscode".to_string(),
@@ -160,6 +182,7 @@ pub fn core_vscode_plugin_package() -> CorePluginPackage {
             core_vscode_write_file_plugin(),
             core_vscode_close_workspace_plugin(),
             core_vscode_get_active_file_content_plugin(),
+            core_vscode_get_workspace_path_plugin(),
         ],
     )
 }
@@ -468,6 +491,62 @@ fn op2_vscode_get_active_file_content(state: &mut OpState) -> std::result::Resul
     
     // Fallback to lsof approach
     get_active_file_via_lsof()
+}
+
+#[op2]
+#[string]
+fn op2_vscode_get_workspace_path(state: &mut OpState) -> std::result::Result<String, JsErrorBox> {
+    permission_check(
+        state,
+        &vscode_get_workspace_path_plugin_function().function_id,
+        vscode_get_content_plugin_permissions(),
+    )?;
+
+    match get_workspace_path_from_vscode_state() {
+        Ok(path) => Ok(path),
+        Err(e) => Err(JsErrorBox::new("Error", e.to_string())),
+    }
+}
+
+/// Gets the workspace folder path from VSCode's state.vscdb
+fn get_workspace_path_from_vscode_state() -> anyhow::Result<String> {
+    use rusqlite::Connection;
+    
+    let home = std::env::var("HOME").map_err(|_| anyhow::anyhow!("HOME not set"))?;
+    let workspace_storage_base = format!("{}/Library/Application Support/Code/User/workspaceStorage", home);
+    
+    // Find the most recently modified workspace state.vscdb
+    let mut newest_db: Option<(String, std::time::SystemTime, String)> = None;
+    
+    if let Ok(entries) = std::fs::read_dir(&workspace_storage_base) {
+        for entry in entries.flatten() {
+            let workspace_json = entry.path().join("workspace.json");
+            let state_db = entry.path().join("state.vscdb");
+            
+            if state_db.exists() && workspace_json.exists() {
+                if let Ok(meta) = state_db.metadata() {
+                    if let Ok(modified) = meta.modified() {
+                        // Read the workspace.json to get the folder path
+                        if let Ok(json_str) = std::fs::read_to_string(&workspace_json) {
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                // The folder field contains the workspace URI like "file:///path/to/folder"
+                                if let Some(folder) = json.get("folder").and_then(|f| f.as_str()) {
+                                    if newest_db.is_none() || modified > newest_db.as_ref().unwrap().1 {
+                                        let folder_path = folder.strip_prefix("file://").unwrap_or(folder).to_string();
+                                        newest_db = Some((state_db.to_string_lossy().to_string(), modified, folder_path));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    newest_db
+        .map(|(_, _, path)| path)
+        .ok_or_else(|| anyhow::anyhow!("No workspace folder found in VSCode state"))
 }
 
 /// Reads VSCode's workspace state.vscdb SQLite database to find the currently active file
