@@ -833,7 +833,9 @@ mod tests {
         assert_eq!(workflow.result.len(), 1);
         let actual = &workflow.result[0].result;
         assert!(
-            actual.to_lowercase().contains("permission denied") || actual.contains("Uncaught"),
+            actual.to_lowercase().contains("permissiondenied")
+                || actual.to_lowercase().contains("permission denied")
+                || actual.contains("Uncaught"),
             "Unexpected workflow result: {actual}"
         );
     }
