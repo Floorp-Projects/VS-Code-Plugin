@@ -296,11 +296,9 @@ fn open_in_vscode(path: &str, line: Option<u32>, column: Option<u32>) -> anyhow:
             (Some(l), None) => format!("vscode://file{}:{}", path, l),
             _ => format!("vscode://file{}", path),
         };
-        
-        let output = Command::new("open")
-            .arg(&url)
-            .output()?;
-        
+
+        let output = Command::new("open").arg(&url).output()?;
+
         if output.status.success() {
             Ok("ok".to_string())
         } else {
@@ -323,7 +321,7 @@ fn open_in_vscode(path: &str, line: Option<u32>, column: Option<u32>) -> anyhow:
                 .arg("--goto")
                 .arg(&goto)
                 .output()?;
-            
+
             if output.status.success() {
                 return Ok("ok".to_string());
             } else {
@@ -331,13 +329,13 @@ fn open_in_vscode(path: &str, line: Option<u32>, column: Option<u32>) -> anyhow:
                 return Err(anyhow::anyhow!("VSCode command failed: {}", stderr));
             }
         }
-        
+
         let output = Command::new("cmd")
             .arg("/C")
             .arg("code")
             .args(&args)
             .output()?;
-        
+
         if output.status.success() {
             Ok("ok".to_string())
         } else {
@@ -373,14 +371,17 @@ fn run_vscode_cli(args: &[&str]) -> anyhow::Result<String> {
         Ok(output) => output,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             if cfg!(target_os = "macos") {
-                let mac_path = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code";
+                let mac_path =
+                    "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code";
                 if std::path::Path::new(mac_path).exists() {
                     Command::new(mac_path).args(args).output()?
                 } else {
                     return Err(anyhow::anyhow!("VSCode 'code' command not found"));
                 }
             } else {
-                return Err(anyhow::Error::new(e).context("VSCode 'code' command not found in PATH"));
+                return Err(
+                    anyhow::Error::new(e).context("VSCode 'code' command not found in PATH")
+                );
             }
         }
         Err(e) => return Err(anyhow::Error::new(e).context("Failed to execute VSCode command")),
@@ -475,7 +476,9 @@ fn op2_vscode_close_workspace(state: &mut OpState) -> std::result::Result<String
 
 #[op2]
 #[string]
-fn op2_vscode_get_active_file_content(state: &mut OpState) -> std::result::Result<String, JsErrorBox> {
+fn op2_vscode_get_active_file_content(
+    state: &mut OpState,
+) -> std::result::Result<String, JsErrorBox> {
     permission_check(
         state,
         &vscode_get_active_file_content_plugin_function().function_id,
@@ -488,7 +491,7 @@ fn op2_vscode_get_active_file_content(state: &mut OpState) -> std::result::Resul
             return Ok(content);
         }
     }
-    
+
     // Fallback to lsof approach
     get_active_file_via_lsof()
 }
@@ -511,18 +514,21 @@ fn op2_vscode_get_workspace_path(state: &mut OpState) -> std::result::Result<Str
 /// Gets the workspace folder path from VSCode's state.vscdb
 fn get_workspace_path_from_vscode_state() -> anyhow::Result<String> {
     use rusqlite::Connection;
-    
+
     let home = std::env::var("HOME").map_err(|_| anyhow::anyhow!("HOME not set"))?;
-    let workspace_storage_base = format!("{}/Library/Application Support/Code/User/workspaceStorage", home);
-    
+    let workspace_storage_base = format!(
+        "{}/Library/Application Support/Code/User/workspaceStorage",
+        home
+    );
+
     // Find the most recently modified workspace state.vscdb
     let mut newest_db: Option<(String, std::time::SystemTime, String)> = None;
-    
+
     if let Ok(entries) = std::fs::read_dir(&workspace_storage_base) {
         for entry in entries.flatten() {
             let workspace_json = entry.path().join("workspace.json");
             let state_db = entry.path().join("state.vscdb");
-            
+
             if state_db.exists() && workspace_json.exists() {
                 if let Ok(meta) = state_db.metadata() {
                     if let Ok(modified) = meta.modified() {
@@ -531,9 +537,18 @@ fn get_workspace_path_from_vscode_state() -> anyhow::Result<String> {
                             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
                                 // The folder field contains the workspace URI like "file:///path/to/folder"
                                 if let Some(folder) = json.get("folder").and_then(|f| f.as_str()) {
-                                    if newest_db.is_none() || modified > newest_db.as_ref().unwrap().1 {
-                                        let folder_path = folder.strip_prefix("file://").unwrap_or(folder).to_string();
-                                        newest_db = Some((state_db.to_string_lossy().to_string(), modified, folder_path));
+                                    if newest_db.is_none()
+                                        || modified > newest_db.as_ref().unwrap().1
+                                    {
+                                        let folder_path = folder
+                                            .strip_prefix("file://")
+                                            .unwrap_or(folder)
+                                            .to_string();
+                                        newest_db = Some((
+                                            state_db.to_string_lossy().to_string(),
+                                            modified,
+                                            folder_path,
+                                        ));
                                     }
                                 }
                             }
@@ -543,7 +558,7 @@ fn get_workspace_path_from_vscode_state() -> anyhow::Result<String> {
             }
         }
     }
-    
+
     newest_db
         .map(|(_, _, path)| path)
         .ok_or_else(|| anyhow::anyhow!("No workspace folder found in VSCode state"))
@@ -552,13 +567,16 @@ fn get_workspace_path_from_vscode_state() -> anyhow::Result<String> {
 /// Reads VSCode's workspace state.vscdb SQLite database to find the currently active file
 fn get_active_file_from_vscode_state() -> anyhow::Result<String> {
     use rusqlite::Connection;
-    
+
     let home = std::env::var("HOME").map_err(|_| anyhow::anyhow!("HOME not set"))?;
-    let workspace_storage_base = format!("{}/Library/Application Support/Code/User/workspaceStorage", home);
-    
+    let workspace_storage_base = format!(
+        "{}/Library/Application Support/Code/User/workspaceStorage",
+        home
+    );
+
     // Find the most recently modified workspace state.vscdb
     let mut newest_db: Option<(String, std::time::SystemTime)> = None;
-    
+
     if let Ok(entries) = std::fs::read_dir(&workspace_storage_base) {
         for entry in entries.flatten() {
             let state_db = entry.path().join("state.vscdb");
@@ -573,24 +591,24 @@ fn get_active_file_from_vscode_state() -> anyhow::Result<String> {
             }
         }
     }
-    
+
     let state_db_path = newest_db
         .map(|(path, _)| path)
         .ok_or_else(|| anyhow::anyhow!("No workspace state database found"))?;
-    
+
     // Open database in read-only mode
     let conn = Connection::open_with_flags(
         &state_db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    
+
     // Query for the editor state - this contains the active file
     let result: Result<String, rusqlite::Error> = conn.query_row(
         "SELECT value FROM ItemTable WHERE key = 'memento/workbench.parts.editor'",
         [],
         |row| row.get(0),
     );
-    
+
     if let Ok(json_str) = result {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
             // Navigate: editorpart.state -> serializedGrid -> root -> data[0] -> data -> editors[0] -> value (JSON string)
@@ -607,8 +625,10 @@ fn get_active_file_from_vscode_state() -> anyhow::Result<String> {
             }
         }
     }
-    
-    Err(anyhow::anyhow!("Could not find active file in VSCode workspace state"))
+
+    Err(anyhow::anyhow!(
+        "Could not find active file in VSCode workspace state"
+    ))
 }
 
 /// Recursively search the editor tree for fsPath
@@ -621,8 +641,12 @@ fn find_fs_path_in_editor_tree(node: &serde_json::Value) -> Option<String> {
                     if let Some(serde_json::Value::String(value_str)) = editor.get("value") {
                         // Parse the nested JSON string
                         if let Ok(inner) = serde_json::from_str::<serde_json::Value>(value_str) {
-                            if let Some(serde_json::Value::Object(resource)) = inner.get("resourceJSON") {
-                                if let Some(serde_json::Value::String(fs_path)) = resource.get("fsPath") {
+                            if let Some(serde_json::Value::Object(resource)) =
+                                inner.get("resourceJSON")
+                            {
+                                if let Some(serde_json::Value::String(fs_path)) =
+                                    resource.get("fsPath")
+                                {
                                     return Some(fs_path.clone());
                                 }
                             }
@@ -630,7 +654,7 @@ fn find_fs_path_in_editor_tree(node: &serde_json::Value) -> Option<String> {
                     }
                 }
             }
-            
+
             // Check data array (for branch nodes)
             if let Some(serde_json::Value::Array(data)) = map.get("data") {
                 for item in data {
@@ -639,14 +663,14 @@ fn find_fs_path_in_editor_tree(node: &serde_json::Value) -> Option<String> {
                     }
                 }
             }
-            
+
             // Also check direct data object
             if let Some(data) = map.get("data") {
                 if let Some(path) = find_fs_path_in_editor_tree(data) {
                     return Some(path);
                 }
             }
-            
+
             None
         }
         serde_json::Value::Array(arr) => {
@@ -670,29 +694,31 @@ fn get_active_file_via_lsof() -> std::result::Result<String, JsErrorBox> {
             .map_err(|e| JsErrorBox::new("Error", format!("Failed to run lsof: {}", e)))?;
 
         if !lsof_output.status.success() {
-            return Err(JsErrorBox::new("Error", "Failed to list VSCode open files".to_string()));
+            return Err(JsErrorBox::new(
+                "Error",
+                "Failed to list VSCode open files".to_string(),
+            ));
         }
 
         let lsof_str = String::from_utf8_lossy(&lsof_output.stdout);
-        
+
         let code_extensions = [
-            ".js", ".ts", ".jsx", ".tsx", ".py", ".rs", ".go", ".java", 
-            ".c", ".cpp", ".h", ".hpp", ".cs", ".rb", ".php", ".swift",
-            ".kt", ".scala", ".html", ".css", ".scss", ".sass", ".less",
-            ".json", ".yaml", ".yml", ".xml", ".md", ".txt", ".sh", ".bash",
-            ".vue", ".svelte", ".astro", ".toml", ".cfg", ".ini", ".env"
+            ".js", ".ts", ".jsx", ".tsx", ".py", ".rs", ".go", ".java", ".c", ".cpp", ".h", ".hpp",
+            ".cs", ".rb", ".php", ".swift", ".kt", ".scala", ".html", ".css", ".scss", ".sass",
+            ".less", ".json", ".yaml", ".yml", ".xml", ".md", ".txt", ".sh", ".bash", ".vue",
+            ".svelte", ".astro", ".toml", ".cfg", ".ini", ".env",
         ];
-        
+
         let mut candidates: Vec<(String, std::time::SystemTime)> = Vec::new();
-        
+
         for line in lsof_str.lines() {
             if !line.starts_with('n') {
                 continue;
             }
-            
+
             let file_path = &line[1..];
-            
-            if file_path.contains(".app/") 
+
+            if file_path.contains(".app/")
                 || file_path.contains("/Library/")
                 || file_path.starts_with("/dev/")
                 || file_path.starts_with("/private/var/")
@@ -701,33 +727,47 @@ fn get_active_file_via_lsof() -> std::result::Result<String, JsErrorBox> {
             {
                 continue;
             }
-            
+
             let has_code_ext = code_extensions.iter().any(|ext| file_path.ends_with(ext));
             if !has_code_ext {
                 continue;
             }
-            
+
             if let Ok(metadata) = std::fs::metadata(file_path) {
                 if let Ok(modified) = metadata.modified() {
                     candidates.push((file_path.to_string(), modified));
                 }
             }
         }
-        
+
         candidates.sort_by(|a, b| b.1.cmp(&a.1));
-        
+
         if let Some((path, _)) = candidates.first() {
             match std::fs::read_to_string(path) {
                 Ok(content) => return Ok(content),
-                Err(e) => return Err(JsErrorBox::new("Error", format!("Failed to read file {}: {}", path, e))),
+                Err(e) => {
+                    return Err(JsErrorBox::new(
+                        "Error",
+                        format!("Failed to read file {}: {}", path, e),
+                    ));
+                }
             }
         }
-        
-        Err(JsErrorBox::new("Error", "No active code files found in VSCode".to_string()))
+
+        Err(JsErrorBox::new(
+            "Error",
+            "No active code files found in VSCode".to_string(),
+        ))
     } else if cfg!(target_os = "windows") {
-        Err(JsErrorBox::new("Error", "get_active_file_content is not yet supported on Windows".to_string()))
+        Err(JsErrorBox::new(
+            "Error",
+            "get_active_file_content is not yet supported on Windows".to_string(),
+        ))
     } else {
-        Err(JsErrorBox::new("Error", "get_active_file_content is not supported on this OS".to_string()))
+        Err(JsErrorBox::new(
+            "Error",
+            "get_active_file_content is not supported on this OS".to_string(),
+        ))
     }
 }
 
